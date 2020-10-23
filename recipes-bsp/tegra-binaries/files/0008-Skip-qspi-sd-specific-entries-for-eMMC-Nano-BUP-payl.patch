@@ -1,0 +1,34 @@
+From 6bcb8519bbcf1fa52b847a8fd743a4284ba1c72d Mon Sep 17 00:00:00 2001
+From: Matt Madison <matt@madison.systems>
+Date: Fri, 23 Oct 2020 11:47:28 -0700
+Subject: [PATCH] Skip qspi-sd-specific entries for eMMC Nano BUP payloads
+
+With the 32.4.4 version of the script, we now get
+errors when the entries don't exist, so just skip
+them altogether when building a BUP payload for
+the eMMC SKU.
+
+Signed-off-by: Matt Madison <matt@madison.systems>
+---
+ bootloader/l4t_bup_gen.func | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/bootloader/l4t_bup_gen.func b/bootloader/l4t_bup_gen.func
+index bea0027..755cac0 100644
+--- a/bootloader/l4t_bup_gen.func
++++ b/bootloader/l4t_bup_gen.func
+@@ -286,8 +286,14 @@ _generate_bl_update_payload()
+ 		ENTRY_LIST[xusb]+=""${signed_dir}"/${xusb_fw} xusb-fw 2 0 $_common_spec;"
+ 
+ 	elif [ "${tegra_soc}" == "t21x" ]; then
++		local board=$(echo "${_sw_spec}" | cut -d- -f1)
++		local sku=$(echo "${_sw_spec}" | cut -d- -f3)
+ 		for part in "${partitions_t210ref[@]}"; do
+ 			eval "${part}"
++			if [ "${board}" = "3448" -a "${sku}" = "0002" -a -z "${part_file}" ]; then
++				echo "Skipping non-existent files for: ${part}"
++				continue
++			fi
+ 			local type_array=(${part_type//,/ })
+ 
+ 			for t in "${type_array[@]}"; do
