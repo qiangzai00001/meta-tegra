@@ -344,6 +344,9 @@ create_tegraflash_pkg_tegra210() {
         cp -R ${STAGING_BINDIR_NATIVE}/tegra210-flash/* .
         tegraflash_generate_bupgen_script
     fi
+    if [ -e ${STAGING_DATADIR}/tegraflash/odmfuse_pkc_${MACHINE}.xml ]; then
+        cp ${STAGING_DATADIR}/tegraflash/odmfuse_pkc_${MACHINE}.xml ./odmfuse_pkc.xml
+    fi
     tegraflash_custom_pre
     cp "${IMAGE_TEGRAFLASH_ROOTFS}" ./${IMAGE_BASENAME}.${IMAGE_TEGRAFLASH_FS_TYPE}
     tegraflash_create_flash_config "${WORKDIR}/tegraflash" ${LNXFILE}
@@ -354,6 +357,13 @@ create_tegraflash_pkg_tegra210() {
 MACHINE=${MACHINE} ./tegra210-flash-helper.sh -B ${TEGRA_BLBLOCKSIZE} $DATAARGS flash.xml.in ${DTBFILE} ${MACHINE}.cfg ${ODMDATA} "$boardcfg" ${LNXFILE} ${IMAGE_BASENAME}.${IMAGE_TEGRAFLASH_FS_TYPE} "\$@"
 END
     chmod +x doflash.sh
+    if [ -e ./odmfuse_pkc.xml ]; then
+        cat > burnfuses.sh <<END
+#!/bin/sh
+MACHINE=${MACHINE} ./tegra210-flash-helper.sh -B ${TEGRA_BLBLOCKSIZE} -c "blowfuses odmfuse_pkc.xml" $DATAARGS flash.xml.in ${DTBFILE} ${MACHINE}.cfg ${ODMDATA} "$boardcfg" ${LNXFILE} ${IMAGE_BASENAME}.${IMAGE_TEGRAFLASH_FS_TYPE} "\$@"
+END
+        chmod +x burnfuses.sh
+    fi
     if [ "${TEGRA_SPIFLASH_BOOT}" = "1" ]; then
         rm -f dosdcard.sh
         cat > dosdcard.sh <<END
@@ -460,12 +470,11 @@ create_tegraflash_pkg_tegra194() {
         cp "${IMAGE_TEGRAFLASH_DATA}" ./${DATAFILE}
         DATAARGS="--datafile ${DATAFILE}"
     fi
+    cp -L "${DEPLOY_DIR_IMAGE}/${DTBFILE}" ./${DTBFILE}
     if [ -n "${KERNEL_ARGS}" ]; then
-        cp -L "${DEPLOY_DIR_IMAGE}/${DTBFILE}" ./${DTBFILE}
-        bootargs="`fdtget ./${DTBFILE} /chosen bootargs 2>/dev/null`"
-        fdtput -t s ./${DTBFILE} /chosen bootargs "$bootargs ${KERNEL_ARGS}"
-    else
-        cp "${DEPLOY_DIR_IMAGE}/${DTBFILE}" ./${DTBFILE}
+        fdtput -t s ./${DTBFILE} /chosen bootargs "${KERNEL_ARGS}"
+    elif fdtget -t s ./${DTBFILE} /chosen bootargs >/dev/null 2>&1; then
+        fdtput -d ./${DTBFILE} /chosen bootargs
     fi
     cp "${DEPLOY_DIR_IMAGE}/cboot-${MACHINE}.bin" ./${CBOOTFILENAME}
     cp "${DEPLOY_DIR_IMAGE}/tos-${MACHINE}.img" ./${TOSIMGFILENAME}
@@ -489,6 +498,9 @@ create_tegraflash_pkg_tegra194() {
         mv ./rollback_parser.py ./rollback/
         tegraflash_generate_bupgen_script
     fi
+    if [ -e ${STAGING_DATADIR}/tegraflash/odmfuse_pkc_${MACHINE}.xml ]; then
+        cp ${STAGING_DATADIR}/tegraflash/odmfuse_pkc_${MACHINE}.xml ./odmfuse_pkc.xml
+    fi
     tegraflash_custom_pre
     cp "${IMAGE_TEGRAFLASH_ROOTFS}" ./${IMAGE_BASENAME}.${IMAGE_TEGRAFLASH_FS_TYPE}
     tegraflash_create_flash_config "${WORKDIR}/tegraflash" ${LNXFILE}
@@ -498,6 +510,13 @@ create_tegraflash_pkg_tegra194() {
 MACHINE=${MACHINE} ./tegra194-flash-helper.sh $DATAARGS flash.xml.in ${DTBFILE} ${MACHINE}.cfg,${MACHINE}-override.cfg ${ODMDATA} ${LNXFILE} ${IMAGE_BASENAME}.${IMAGE_TEGRAFLASH_FS_TYPE} "\$@"
 END
     chmod +x doflash.sh
+    if [ -e ./odmfuse_pkc.xml ]; then
+        cat > burnfuses.sh <<END
+#!/bin/sh
+MACHINE=${MACHINE} ./tegra194-flash-helper.sh -c "burnfuses odmfuse_pkc.xml" $DATAARGS flash.xml.in ${DTBFILE} ${MACHINE}.cfg,${MACHINE}-override.cfg ${ODMDATA} ${LNXFILE} ${IMAGE_BASENAME}.${IMAGE_TEGRAFLASH_FS_TYPE} "\$@"
+END
+        chmod +x burnfuses.sh
+    fi
     if [ "${TEGRA_SPIFLASH_BOOT}" = "1" ]; then
         rm -f dosdcard.sh
         cat > dosdcard.sh <<END
@@ -547,7 +566,7 @@ TEGRAFLASH_PKG_DEPENDS = "${@'zip-native:do_populate_sysroot' if d.getVar('TEGRA
 do_image_tegraflash[depends] += "${TEGRAFLASH_PKG_DEPENDS} dtc-native:do_populate_sysroot \
                                  ${SOC_FAMILY}-flashtools-native:do_populate_sysroot gptfdisk-native:do_populate_sysroot \
                                  tegra-bootfiles:do_populate_sysroot tegra-bootfiles:do_populate_lic \
-                                 tegra-redundant-boot-base:do_populate_sysroot virtual/kernel:do_deploy \
+                                 tegra-redundant-boot-rollback:do_populate_sysroot virtual/kernel:do_deploy \
                                  ${@'${INITRD_IMAGE}:do_image_complete' if d.getVar('INITRD_IMAGE') != '' else  ''} \
                                  ${@'${IMAGE_UBOOT}:do_deploy ${IMAGE_UBOOT}:do_populate_lic' if d.getVar('IMAGE_UBOOT') != '' else  ''} \
                                  cboot:do_deploy virtual/secure-os:do_deploy ${TEGRA_SIGNING_EXTRA_DEPS}"
@@ -657,6 +676,6 @@ create_bup_payload_image() {
 create_bup_payload_image[vardepsexclude] += "DATETIME"
 
 CONVERSIONTYPES += "bup-payload"
-CONVERSION_DEPENDS_bup-payload = "${SOC_FAMILY}-flashtools-native coreutils-native tegra-bootfiles tegra-redundant-boot-base dtc-native virtual/bootloader:do_deploy virtual/kernel:do_deploy virtual/secure-os:do_deploy ${TEGRA_SIGNING_EXTRA_DEPS}"
+CONVERSION_DEPENDS_bup-payload = "${SOC_FAMILY}-flashtools-native coreutils-native tegra-bootfiles tegra-redundant-boot-rollback dtc-native virtual/bootloader:do_deploy virtual/kernel:do_deploy virtual/secure-os:do_deploy ${TEGRA_SIGNING_EXTRA_DEPS}"
 CONVERSION_CMD_bup-payload = "create_bup_payload_image ${type}"
 IMAGE_TYPES += "cpio.gz.cboot.bup-payload"
